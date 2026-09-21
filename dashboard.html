@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>UFC Ticket Tracker</title>
+<style>
+  :root {
+    --ground: #0a0a0c; --panel: #141418; --ink: #EDEFF4; --ink-soft: #9AA0AE;
+    --muted: #656b78; --accent: #D9403A; --rule: rgba(255,255,255,0.1);
+    --rising: #4ADE80; --falling: #F87171; --flat: #9AA0AE;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --ground: #F5F5F3; --panel: #FFFFFF; --ink: #17181C; --ink-soft: #55596b;
+      --muted: #8a8f9c; --accent: #C4372F; --rule: rgba(0,0,0,0.1); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: -apple-system, 'Segoe UI', sans-serif; padding: 40px 24px 80px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--ink-soft); font-size: 14px; margin: 0 0 32px; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 22px 26px; margin-bottom: 18px; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .card-head h2 { font-size: 18px; margin: 0; }
+  .venue { color: var(--muted); font-size: 13px; }
+  .badge { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 10px; border-radius: 100px; }
+  .badge.rising { color: var(--rising); background: rgba(74,222,128,0.12); }
+  .badge.falling { color: var(--falling); background: rgba(248,113,113,0.12); }
+  .badge.flat, .badge.unknown { color: var(--flat); background: rgba(154,160,174,0.12); }
+  .stats-row { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+  .stat .val { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  svg.spark { display: block; width: 100%; height: 60px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 40px; text-align: center; border: 1px dashed var(--rule); border-radius: 8px; }
+  .footer-note { color: var(--muted); font-size: 12px; margin-top: 32px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>UFC Ticket Tracker</h1>
+  <p class="sub" id="genAt">Loading...</p>
+  <div id="events"></div>
+  <p class="footer-note">Event-level pricing via SeatGeek's public API. Refresh this page after running <code>export_json.py</code> to see new snapshots.</p>
+</div>
+
+<script>
+async function load() {
+  let data;
+  try {
+    const res = await fetch('dashboard_data.json', {cache: 'no-store'});
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('events').innerHTML = '<div class="empty">Could not load dashboard_data.json — run <code>python3 export_json.py</code> first, and view this page via a local server (not file://).</div>';
+    return;
+  }
+
+  document.getElementById('genAt').textContent = 'Last updated: ' + new Date(data.generated_at).toLocaleString();
+
+  const container = document.getElementById('events');
+  if (!data.events.length) {
+    container.innerHTML = '<div class="empty">No events tracked yet — run <code>python3 fetch_events.py</code> first.</div>';
+    return;
+  }
+
+  for (const ev of data.events) {
+    const snaps = ev.snapshots;
+    const last = snaps[snaps.length - 1];
+    const first = snaps[0];
+    let trend = 'unknown', pct = null;
+    if (snaps.length >= 2 && first.lowest_price && last.lowest_price) {
+      pct = (last.lowest_price - first.lowest_price) / first.lowest_price * 100;
+      trend = pct > 2 ? 'rising' : pct < -2 ? 'falling' : 'flat';
+    }
+
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const daysOut = last.days_to_event != null ? Math.round(last.days_to_event) + 'd out' : '';
+    const eventDate = ev.event_datetime ? new Date(ev.event_datetime).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
+
+    card.innerHTML = `
+      <div class="card-head">
+        <div>
+          <h2>${ev.title}</h2>
+          <div class="venue">${ev.venue || ''} &middot; ${eventDate} ${daysOut ? '&middot; ' + daysOut : ''}</div>
+        </div>
+        <span class="badge ${trend}">${trend}${pct !== null ? ' ' + (pct > 0 ? '+' : '') + pct.toFixed(1) + '%' : ''}</span>
+      </div>
+      <div class="stats-row">
+        <div class="stat"><div class="label">Lowest</div><div class="val">$${fmt(last.lowest_price)}</div></div>
+        <div class="stat"><div class="label">Average</div><div class="val">$${fmt(last.average_price)}</div></div>
+        <div class="stat"><div class="label">Highest</div><div class="val">$${fmt(last.highest_price)}</div></div>
+        <div class="stat"><div class="label">Listings</div><div class="val">${last.listing_count ?? '—'}</div></div>
+        <div class="stat"><div class="label">Snapshots</div><div class="val">${snaps.length}</div></div>
+      </div>
+      ${sparkline(snaps)}
+    `;
+    container.appendChild(card);
+  }
+}
+
+function fmt(n) { return n != null ? Math.round(n).toLocaleString() : '—'; }
+
+function sparkline(snaps) {
+  const prices = snaps.map(s => s.lowest_price).filter(p => p != null);
+  if (prices.length < 2) return '';
+  const w = 900, h = 60, pad = 4;
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = (max - min) || 1;
+  const pts = prices.map((p, i) => {
+    const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((p - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Lowest price trend over time">
+    <polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2" opacity="0.7"/>
+  </svg>`;
+}
+
+load();
+</script>
+</body>
+</html>
