@@ -110,7 +110,8 @@ def run():
     if SEATGEEK_CLIENT_ID == "PASTE_YOUR_CLIENT_ID_HERE":
         raise SystemExit(
             "Set your SeatGeek client_id first -- either export SEATGEEK_CLIENT_ID "
-            "or edit config.py directly. Get one free at https://seatgeek.com/account/develop"
+            "or put it in a .seatgeek_client_id file next to config.py. "
+            "Get one free at https://seatgeek.com/account/develop"
         )
 
     init_db()

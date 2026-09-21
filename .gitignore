@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 .env
 .DS_Store
+.seatgeek_client_id
+poll.log
+dashboard_data.json
